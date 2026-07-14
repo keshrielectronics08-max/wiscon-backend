@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const connectDB = require('./config/db');
 
 const authRoutes = require('./routes/auth');
@@ -27,23 +28,28 @@ const marketingRoutes = require('./routes/marketing');
 const supplierRoutes = require('./routes/suppliers');
 const shiprocketRoutes = require('./routes/shiprocket');
 
+const PORT = process.env.PORT || 5000;
+
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
 const app = express();
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || '*' }));
 app.use(express.json({ limit: '10mb' }));
 
-// serve uploaded product photos as static files (e.g. /uploads/product-123.jpg)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(uploadsDir));
 
-// serve customer website on same origin
 const websiteDir = path.join(__dirname, '..', 'website');
-app.use('/store', express.static(websiteDir));
+if (fs.existsSync(websiteDir)) {
+  app.use('/store', express.static(websiteDir));
+}
 
-// serve admin panel (so it runs on same origin as API — no CORS issues)
 const adminDir = path.join(__dirname, '..', 'admin-panel');
-app.use('/admin', express.static(adminDir));
+if (fs.existsSync(adminDir)) {
+  app.use('/admin', express.static(adminDir));
+}
 
-// ===== ROUTES =====
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
@@ -71,22 +77,17 @@ app.get('/', (req, res) => {
   res.send('Wiscon Industries API is running');
 });
 
-// Health check — quick way to verify server + mongo
 app.get('/api/health', async (req, res) => {
   const mongoose = require('mongoose');
   const dbOk = mongoose.connection.readyState === 1;
   res.json({ status: 'ok', db: dbOk ? 'connected' : 'disconnected', port: PORT });
 });
 
-// Global error handler — prevents server crashes
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err.message);
   res.status(500).json({ message: 'Internal server error', error: err.message });
 });
 
-const PORT = process.env.PORT || 5000;
-
-// Connect DB first, then start server
 connectDB().then(() => {
   app.listen(PORT, () => {
     console.log('Server running on port ' + PORT);
@@ -97,7 +98,6 @@ connectDB().then(() => {
   process.exit(1);
 });
 
-// Auto-track Shiprocket orders every 30 minutes
 setInterval(async () => {
   try {
     const cfg = await require('./models/ShiprocketConfig').findOne();
